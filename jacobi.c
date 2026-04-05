@@ -146,16 +146,21 @@ double* jacobi(const double* A, const double* b, const double* x0, const int siz
         }
     }
 
-    return x;
+    free(x);
+
+    return x_new;
 }
 
-// VERSIONE SENZA MPI!!
+// VERSIONE CON MPI!!
 double* MPI_Jacobi(const double* A, const double* b, const double* x0, const int size, const double toll, const unsigned int itermax) {
     /*
     JACOBI: Xi = (bi - sommatoria i!=j di Aij*Xj)/Aii
 
     con MPI: divido la matrice in blocchi di righe e li assegno ai diversi processi
 
+    dato che la matrice la genero nel main non ha senso che io faccia qua lo scattter, 
+    devo farlo nel main così che solo il rank 0 abbia in memoria tutta la matrice, gli altri solo una parte,
+    così ottimizzo l'utilizzo della memoria
     */
 
     int rank, world_size;
@@ -210,5 +215,7 @@ double* MPI_Jacobi(const double* A, const double* b, const double* x0, const int
         }
     }
 
-    return x;
+    free(x);
+
+    return x_new;
 }
