@@ -1,7 +1,7 @@
 ## Istruzioni:
 Per compilare:
 ```
-mpicc main.c jacobi.c -o mpi_jacobi -lm
+mpicc main.c jacobi.c -o mpi_jacobi
 ```
 
 per runnare:
