@@ -9,7 +9,7 @@ Il progetto è organizzato in tre file:
 - `jacobi.h` — dichiarazioni delle funzioni
 
 ---
-
+ 
 ## Generazione delle matrici
 
 Per testare il metodo ho bisogno di un sistema lineare `Ax = b` con soluzione nota, in modo da poter verificare la correttezza dell'implementazione. Ho implementato tre funzioni di generazione in `jacobi.c`.
