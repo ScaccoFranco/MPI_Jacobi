@@ -1,7 +1,7 @@
 ## Istruzioni:
-Per compilare:
+Per compilare: ( aggiunto link libreria matematica)
 ```
-mpicc main.c jacobi.c -o mpi_jacobi
+mpicc main.c jacobi.c -o mpi_jacobi -lm
 ```
 
 per runnare:

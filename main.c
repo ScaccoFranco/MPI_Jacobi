@@ -47,7 +47,7 @@ int main (int argc, char** argv) {
 
 
     if (rank == 0) {
-        for (int i = 0; i < 5; i++) { // stampo qualceh valore di x finale per vedere se ha funzionato ( se sono tutti 1)
+        for (int i = 0; i < size; i++) { // stampo x finale
             printf("%.4f\n", sol[i]);
         }
 

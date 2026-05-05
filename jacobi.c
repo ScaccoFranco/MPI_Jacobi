@@ -184,23 +184,26 @@ double* MPI_Jacobi(const double* A, const double* b, const double* x0, const int
         local_diff = 0.0;
 
         // singola iterazione (divisa nei vari processi)
-        for (int j = row_start; j < row_end; j++) { // verificare se fare < o <=
+        for (int j = 0; j < per_proc; j++) { // verificare se fare < o <=
             double sommatoria = 0.0;
 
+            int global_j = row_start + j;
+
             for (int k = 0; k < size; k++) {
-                if (k != j) {
+                if (k != global_j) {
                     sommatoria += A[j * size + k] * x[k];
                 }
             }
 
-            x_new[j] = (b[j] - sommatoria) / A[j*size + j]; // formula iterativa jacobi 
+            x_new[global_j] = (b[j] - sommatoria) / A[j*size + global_j]; // formula iterativa jacobi 
         }
 
         // calcolo toll
-        for (int j = row_start; j < row_end; j++) { // verifica pure qua
+        for (int j = 0; j < per_proc; j++) { // verifica pure qua
+            int global_j = row_start + j; // corretto qua
             // diff è il massimo scarto, norma infinito!
             local_diff = fmax(local_diff, fabs(x_new[j] - x[j]));
-            x[j] = x_new[j]; 
+            x[global_j] = x_new[global_j]; 
         }
 
 
@@ -215,7 +218,7 @@ double* MPI_Jacobi(const double* A, const double* b, const double* x0, const int
         }
     }
 
-    free(x);
+    free(x_new);
 
-    return x_new;
+    return x;
 }
