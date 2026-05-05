@@ -43,7 +43,7 @@ int main (int argc, char** argv) {
     fill_const(x0, 0.0, size, 1); // tipo zeros di matlab
 
     // double *sol = jacobi(A, b, x0, size, toll, itermax);
-    double *sol = MPI_Jacobi(A, b, x0, size, toll, itermax);
+    double *sol = MPI_Jacobi(A_local, b_local, x0, size, toll, itermax);
 
 
     if (rank == 0) {
