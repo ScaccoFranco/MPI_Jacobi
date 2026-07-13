@@ -1,224 +1,95 @@
-#include <math.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <mpi.h>
-#include "jacobi.h"
-
-
 /*
-    x generare numeri "pseudo-casuali" uso algoritmo
-    Generatore lineare congruenziale (LCG):
-    formula ricorsiva: X(n+1) = (a*X(n) + c) mod m
-    con:
-    X(n) - n esimo elemento della sucessione pseudocasuale
-    m, m > 0 - il modulo
-    a, 0 < a < m - il moltiplicatore
-    c, 0 <= c < m - l'incremento
-    X(0), 0 <= X(0) < m - il seme, o valore iniziale
+ * jacobi.c
+ *
+ * Metodo di Jacobi parallelizzato con MPI.
+ *
+ * L'idea di fondo e' che ogni processo si tiene solo le sue righe della matrice (n_loc righe a testa), 
+ * ma per aggiornare le proprie incognite ha comunque bisogno di TUTTO il vettore soluzione dell'iterazione precedente. 
+ * Per questo dopo ogni aggiornamento rimetto insieme il vettore globale con una Allgather.
+ *
+ * La formula e' quella classica di Jacobi scritta come Richardson precondizionato con la diagonale (Quarteroni, Sez. 4.2.1 e 4.3.1):
+ *
+ *     x^{k+1} = x^k + D^{-1} (b - A x^k)
+ *
+ * che componente per componente diventa
+ *
+ *     x_g = ( b_g - somma_{j != g} a_gj x_j ) / a_gg .
+ */
 
+#include <stdlib.h>
+#include <math.h>
+#include <mpi.h>
+#include "solver.h"
 
-    valori usati:
-    a = 1664525 - moltiplicatore usato da Knuth, The Art of Computer Programming
-    c = 1013904223 - incremento scelto da Numerical Recipes
-    m = 2^32 - modulo implicito lavorando con unsigned int a 32 bit 
-*/
+int MPI_Jacobi(const double *A_local, const double *b_local,
+               double *x, int N, int n_loc, int rank,
+               double tol, int max_iter)
+{
+    /* Qui salvo le nuove incognite di questo processo prima di
+     * spedirle a tutti. Se scrivessi direttamente dentro x rovinerei
+     * i valori dell'iterazione k mentre sto ancora calcolando: Jacobi
+     * vuole i vecchi valori fino alla fine del giro. */
+    double *x_new = malloc(n_loc * sizeof(double));
 
-static double rand_double(unsigned int *seed) {
-    double max_val = 2.0;
+    /* Mi calcolo una volta per tutte la norma di b, che mi serve al
+     * denominatore del criterio d'arresto (residuo relativo). E' un
+     * numero globale, quindi sommo i pezzi locali con una Allreduce. */
+    double norm_b_loc = 0.0;
+    for (int i = 0; i < n_loc; i++)
+        norm_b_loc += b_local[i] * b_local[i];
 
-    //ogni volta che viene chaiamata la funz cambia il seed (state)
-    *seed = (*seed * 1664525u + 1013904223u); // LCG classico 
+    double norm_b;
+    MPI_Allreduce(&norm_b_loc, &norm_b, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    norm_b = sqrt(norm_b);
 
-    // genero rand tra [0,1] e poi passo a [-max, max]
-    return ((double)(*seed) / (double)UINT32_MAX) * 2.0 * max_val - max_val;
-}
+    int k;
+    for (k = 1; k <= max_iter; k++) {
 
+        /* aggiornamento delle mie incognite */
+        for (int i = 0; i < n_loc; i++) {
 
+            /* Attenzione: i e' l'indice LOCALE (0..n_loc-1), ma nella
+             * matrice la diagonale sta nella colonna GLOBALE.*/
+            int g = rank * n_loc + i;
 
-// funzione per generare matrici A, b random
-void genera_matrici(double *A, double *b, const int n, unsigned int seed) {
-    unsigned int seme = seed;
+            const double *riga = &A_local[i * N];
 
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            A[i * n + j] = rand_double(&seme); // assegna valore e cambia seed
-        }
-        b[i] = rand_double(&seme); // pure qua
-    }
-}
-
-
-// genero matrice diagonale dominante per righe
-void genera_matrici_diag_dom(double *A, double *b, const int n, unsigned int seed) {
-    unsigned int seme = seed;
-    double margine = 1.0; // margine di dominanza
-
-    for (int i = 0; i < n; i++) {
-        double somma_righe = 0.0;
-
-        // faccio prima elementi non diagonali
-        for (int j = 0; j < n; j++) {
-            if (j != i) {
-                A[i * n + j] = rand_double(&seme);
-                somma_righe += fabs(A[i * n + j]); //  fabs = abs per double, math.h
-            }
-        }
-
-        // per la diagonale tengo la somma delle righe 
-        A[i * n + i] = somma_righe + margine;
-
-        b[i] = rand_double(&seme);
-    }
-}
-
- // come funz prima ma genera in modo che x = unitaria (x = ones(size, 1))
-void genera_matrici_diagdom_xones(double *A, double *b, const int n, unsigned int seed) {
-    unsigned int seme = seed;
-    double margine = 1.0; // margine di dominanza
-
-    for (int i = 0; i < n; i++) {
-        double somma_righe = 0.0;
-        b[i] = 0.0;
-
-        // faccio prima elementi non diagonali
-        for (int j = 0; j < n; j++) {
-            if (j != i) {
-                A[i * n + j] = rand_double(&seme);
-                somma_righe += fabs(A[i * n + j]); //  fabs = abs per double, math.hb[i] += A[i * n + j]; // i valori di b sono la sommatoria delle righe di A
-                b[i] += A[i * n + j]; // i valori di b sono la sommatoria delle righe di A
-            }
-        }
-
-        // per la diagonale tengo la somma delle righe 
-        A[i * n + i] = somma_righe + margine;
-        b[i] += A[i * n + i]; // i valori di b sono la sommatoria delle righe di A
-    }
-}
-
-// la uso per zeros() di matlab
-void fill_const(double *A, const double val, const int rows, const int cols) {
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
-            A[i*cols + j] = val;
-        }
-    }
-}
-
-
-
-// VERSIONE SENZA MPI!!
-double* jacobi(const double* A, const double* b, const double* x0, const int size, const double toll, const unsigned int itermax) {
-    /*
-    JACOBI: Xi = (bi - sommatoria i!=j di Aij*Xj)/Aii
-    */
-
-    double diff;
-    double *x = malloc(size * sizeof(double));
-    double *x_new = malloc(size * sizeof(double));
-    memcpy(x, x0, size*sizeof(double));
-
-    for (int i = 0; i < itermax; i++) {
-        diff = 0.0;
-
-        // singola iterazione
-        for (int j = 0; j < size; j++) {
-            double sommatoria = 0.0;
-
-            for (int k = 0; k < size; k++) {
-                if (k != j) {
-                    sommatoria += A[j * size + k] * x[k];
-                }
+            double somma = 0.0;
+            for (int j = 0; j < N; j++) {
+                if (j == g) continue;      /* salto il termine diagonale */
+                somma += riga[j] * x[j];
             }
 
-            x_new[j] = (b[j] - sommatoria) / A[j*size + j]; // formula iterativa jacobi 
+            x_new[i] = (b_local[i] - somma) / riga[g];
         }
 
-        // calcolo toll
-        for (int j = 0; j < size; j++) {
-            // diff è il massimo scarto, norma infinito!
-            diff = fmax(diff, fabs(x_new[j] - x[j]));
-            x[j] = x_new[j]; 
+        /* rimetto insieme il vettore globale: */
+        /* Ogni processo mette dentro i suoi n_loc valori nuovi e se li ritrova tutti in x, nell'ordine giusto (rank 0, poi 1, ...).
+         * Uso Allgather e non Gather+Bcast perche' mi serve che TUTTI abbiano il vettore completo per l'iterazione dopo, e la fa in un colpo solo. */
+        MPI_Allgather(x_new, n_loc, MPI_DOUBLE, x, n_loc, MPI_DOUBLE, MPI_COMM_WORLD);
+
+        /* controllo se posso fermarmi */
+        /* Calcolo il residuo r = b - A x sulle mie righe e ne accumulo
+         * la norma al quadrato; poi sommo tra tutti i processi. */
+        double norm_r_loc = 0.0;
+        for (int i = 0; i < n_loc; i++) {
+            const double *riga = &A_local[i * N];
+            double r = b_local[i];
+            for (int j = 0; j < N; j++)
+                r -= riga[j] * x[j];
+            norm_r_loc += r * r;
         }
 
-        if(diff < toll) {
+        double norm_r;
+        MPI_Allreduce(&norm_r_loc, &norm_r, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+        /* Tutti i processi hanno lo stesso norm_r, quindi decidono tutti insieme di uscire: nessuno resta "indietro" nel ciclo. */
+        if (sqrt(norm_r) / norm_b <= tol)
             break;
-        }
-    }
-
-    free(x);
-
-    return x_new;
-}
-
-// VERSIONE CON MPI!!
-double* MPI_Jacobi(const double* A, const double* b, const double* x0, const int size, const double toll, const unsigned int itermax) {
-    /*
-    JACOBI: Xi = (bi - sommatoria i!=j di Aij*Xj)/Aii
-
-    con MPI: divido la matrice in blocchi di righe e li assegno ai diversi processi
-
-    dato che la matrice la genero nel main non ha senso che io faccia qua lo scattter, 
-    devo farlo nel main così che solo il rank 0 abbia in memoria tutta la matrice, gli altri solo una parte,
-    così ottimizzo l'utilizzo della memoria
-    */
-
-    int rank, world_size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-
-
-    //Righe assegnate a questo processo
-    int per_proc = size / world_size;
-    int row_start = rank * per_proc;
-    int row_end = row_start + per_proc;
-
-
-
-    double local_diff, global_diff;
-    double *x = malloc(size * sizeof(double));
-    double *x_new = malloc(size * sizeof(double));
-    memcpy(x, x0, size*sizeof(double));
-
-    for (int i = 0; i < itermax; i++) {
-        local_diff = 0.0;
-
-        // singola iterazione (divisa nei vari processi)
-        for (int j = 0; j < per_proc; j++) { // verificare se fare < o <=
-            double sommatoria = 0.0;
-
-            int global_j = row_start + j;
-
-            for (int k = 0; k < size; k++) {
-                if (k != global_j) {
-                    sommatoria += A[j * size + k] * x[k];
-                }
-            }
-
-            x_new[global_j] = (b[j] - sommatoria) / A[j*size + global_j]; // formula iterativa jacobi 
-        }
-
-        // calcolo toll
-        for (int j = 0; j < per_proc; j++) { // verifica pure qua
-            int global_j = row_start + j; // corretto qua
-            // diff è il massimo scarto, norma infinito!
-            local_diff = fmax(local_diff, fabs(x_new[j] - x[j]));
-            x[global_j] = x_new[global_j]; 
-        }
-
-
-        // contivido x_new su tutti i processi per poter fare l'iterazione successiva. a tutti serve quindi uso Allghater invece di gather
-        MPI_Allgather(x_new + row_start, per_proc, MPI_DOUBLE, x, per_proc, MPI_DOUBLE, MPI_COMM_WORLD);
-
-        // pure qua serve a tutti quindi uso Allreduce e non reduce, altrimenti posso usare gather e poi broadcast?
-        MPI_Allreduce(&local_diff, &global_diff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-
-        if (global_diff < toll) {
-            break;
-        }
     }
 
     free(x_new);
 
-    return x;
+    /* Returno x (globale, uguale su tutti) tramite il puntatore, e il numero di iterazioni fatte come valore di ritorno. */
+    return k;
 }

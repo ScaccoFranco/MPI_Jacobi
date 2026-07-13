@@ -1,0 +1,1 @@
+/usr/bin/cc  -Wall -Wextra CMakeFiles/solver.dir/main.c.o CMakeFiles/solver.dir/poisson.c.o CMakeFiles/solver.dir/thomas.c.o CMakeFiles/solver.dir/jacobi.c.o CMakeFiles/solver.dir/schwarz.c.o -o solver  -Wl,-rpath,/usr/lib/x86_64-linux-gnu/openmpi/lib -lm /usr/lib/x86_64-linux-gnu/openmpi/lib/libmpi.so 

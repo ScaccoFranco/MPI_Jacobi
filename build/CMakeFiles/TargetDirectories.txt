@@ -1,0 +1,3 @@
+/home/samuele/Scrivania/UNI/Prova Finale/implementazione/build/CMakeFiles/solver.dir
+/home/samuele/Scrivania/UNI/Prova Finale/implementazione/build/CMakeFiles/edit_cache.dir
+/home/samuele/Scrivania/UNI/Prova Finale/implementazione/build/CMakeFiles/rebuild_cache.dir
