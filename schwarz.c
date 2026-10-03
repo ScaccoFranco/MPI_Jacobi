@@ -14,10 +14,6 @@
  * Gli operatori R_i e R_i^T non sono mai costruiti esplicitamente:
  * R_i corrisponde all'accesso alla porzione locale dei vettori,
  * R_i^T all'aggiornamento delle sole componenti di competenza.
- *
- * Riferimenti: 
- * Dolean, Jolivet, Nataf, "An Introduction to Domain Decomposition Methods", SIAM 2015, Sez. 1.2-1.3; 
- * Quarteroni et al., Sez. 4.2.4 (Jacobi a blocchi) e 3.7.1 (Thomas).
  */
 
 #include <stdlib.h>
@@ -31,17 +27,14 @@ int MPI_Schwarz(const double *A_local, const double *b_local,
 {
     /* Estrazione del blocco tridiagonale locale A_i 
      * La riga locale i è la riga globale g = rank*n_loc + i; il blocco
-     * diagonale occupa le colonne globali [rank*n_loc, rank*n_loc + n_loc).
-     * Nota: per una matrice qualunque questa è un'approssimazione
-     * tridiagonale del blocco; per la matrice di Poisson il blocco È
-     * esattamente tridiagonale, quindi il solutore locale è esatto. */
+     * diagonale occupa le colonne globali [rank*n_loc, rank*n_loc + n_loc). */
     double *low = malloc((size_t)n_loc * sizeof(double));
     double *diag = malloc((size_t)n_loc * sizeof(double));
     double *up = malloc((size_t)n_loc * sizeof(double));
     double *r_loc = malloc((size_t)n_loc * sizeof(double));
     double *w = malloc((size_t)n_loc * sizeof(double));
     double *x_new_local = malloc((size_t)n_loc * sizeof(double));
-    double *beta = malloc((size_t)n_loc * sizeof(double));
+    double *alpha = malloc((size_t)n_loc * sizeof(double));
     double *y = malloc((size_t)n_loc * sizeof(double));
 
     const int offset = rank * n_loc;   /* prima colonna del blocco */
@@ -76,7 +69,7 @@ int MPI_Schwarz(const double *A_local, const double *b_local,
         if (sqrt(nr) / nb <= tol) { iter--; break; }
 
         /* 2) soluzione locale esatta con Thomas: A_i w = r_loc */
-        thomas_solve(n_loc, low, diag, up, r_loc, w, beta, y);
+        thomas_solve(n_loc, low, diag, up, r_loc, w, alpha, y);
 
         /* 3) aggiornamento u^{m} = u^{m-1} + R_i^T w e assemblaggio */
         for (int i = 0; i < n_loc; i++)
@@ -87,6 +80,6 @@ int MPI_Schwarz(const double *A_local, const double *b_local,
 
     free(low); free(diag); free(up);
     free(r_loc); free(w); free(x_new_local);
-    free(beta); free(y);
+    free(alpha); free(y);
     return iter;
 }

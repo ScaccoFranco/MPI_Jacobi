@@ -7,7 +7,7 @@
  * ma per aggiornare le proprie incognite ha comunque bisogno di TUTTO il vettore soluzione dell'iterazione precedente. 
  * Per questo dopo ogni aggiornamento rimetto insieme il vettore globale con una Allgather.
  *
- * La formula e' quella classica di Jacobi scritta come Richardson precondizionato con la diagonale (Quarteroni, Sez. 4.2.1 e 4.3.1):
+ * La formula e' quella classica di Jacobi
  *
  *     x^{k+1} = x^k + D^{-1} (b - A x^k)
  *
@@ -25,13 +25,11 @@ int MPI_Jacobi(const double *A_local, const double *b_local,
                double *x, int N, int n_loc, int rank,
                double tol, int max_iter)
 {
-    /* Qui salvo le nuove incognite di questo processo prima di
-     * spedirle a tutti. Se scrivessi direttamente dentro x rovinerei
-     * i valori dell'iterazione k mentre sto ancora calcolando: Jacobi
-     * vuole i vecchi valori fino alla fine del giro. */
+    /* salvo le nuove incognite di questo processo prima di
+     * spedirle a tutti. in modo da non modificare i valori della iterazione corrente */
     double *x_new = malloc(n_loc * sizeof(double));
 
-    /* Mi calcolo una volta per tutte la norma di b, che mi serve al
+    /* Mi calcolo la norma di b, che mi serve al
      * denominatore del criterio d'arresto (residuo relativo). E' un
      * numero globale, quindi sommo i pezzi locali con una Allreduce. */
     double norm_b_loc = 0.0;
@@ -44,12 +42,8 @@ int MPI_Jacobi(const double *A_local, const double *b_local,
 
     int k;
     for (k = 1; k <= max_iter; k++) {
-
-        /* aggiornamento delle mie incognite */
         for (int i = 0; i < n_loc; i++) {
-
-            /* Attenzione: i e' l'indice LOCALE (0..n_loc-1), ma nella
-             * matrice la diagonale sta nella colonna GLOBALE.*/
+            /* i è indice locale, g è l'indice globale */
             int g = rank * n_loc + i;
 
             const double *riga = &A_local[i * N];
@@ -64,11 +58,10 @@ int MPI_Jacobi(const double *A_local, const double *b_local,
         }
 
         /* rimetto insieme il vettore globale: */
-        /* Ogni processo mette dentro i suoi n_loc valori nuovi e se li ritrova tutti in x, nell'ordine giusto (rank 0, poi 1, ...).
-         * Uso Allgather e non Gather+Bcast perche' mi serve che TUTTI abbiano il vettore completo per l'iterazione dopo, e la fa in un colpo solo. */
+        /* Allgather così tutti hanno il vettore completo per l'iterazione dopo */
         MPI_Allgather(x_new, n_loc, MPI_DOUBLE, x, n_loc, MPI_DOUBLE, MPI_COMM_WORLD);
 
-        /* controllo se posso fermarmi */
+        /* controllo tolleranza per fermarmi */
         /* Calcolo il residuo r = b - A x sulle mie righe e ne accumulo
          * la norma al quadrato; poi sommo tra tutti i processi. */
         double norm_r_loc = 0.0;

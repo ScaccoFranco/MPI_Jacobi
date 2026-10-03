@@ -3,38 +3,35 @@
  *
  * Fattorizzazione LU specializzata (senza pivotazione) seguita da
  * sostituzione in avanti e all'indietro; costo O(n).
- *
- * Riferimento: Quarteroni et al., "Matematica Numerica", 4a ed.,
- * Springer 2014, Sez. 3.7.1.
  */
 
 #include <math.h>
 #include "solver.h"
 
 int thomas_solve(int n, const double *low, const double *diag,
-                 const double *up, const double *rhs, double *sol,
-                 double *beta, double *y)
+                 const double *up, const double *f, double *sol,
+                 double *alpha, double *y)
 {
     /* Fattorizzazione: 
-     * beta_1 = d_1,
-     * gamma_i = l_i / beta_{i-1}, 
-     * beta_i = d_i - gamma_i s_{i-1}.
-     * gamma_i non viene memorizzato: serve solo per aggiornare y. */
-    beta[0] = diag[0];
-    if (beta[0] == 0.0) return -1;
-    y[0] = rhs[0];
+     * alpha_1 = d_1,
+     * beta_i = l_i / alpha_{i-1}, 
+     * alpha_i = d_i - beta_i s_{i-1}.
+     * beta_i non viene memorizzato: serve solo per aggiornare y. */
+    alpha[0] = diag[0];
+    if (alpha[0] == 0.0) return -1;
+    y[0] = f[0];
 
     for (int i = 1; i < n; i++) {
-        double gamma = low[i] / beta[i - 1];
-        beta[i] = diag[i] - gamma * up[i - 1];
-        if (beta[i] == 0.0) return -1;
-        y[i] = rhs[i] - gamma * y[i - 1];   /* L y = rhs */
+        double beta = low[i] / alpha[i - 1];
+        alpha[i] = diag[i] - beta * up[i - 1];
+        if (alpha[i] == 0.0) return -1;
+        y[i] = f[i] - beta * y[i - 1];   /* L y = f */
     }
 
     /* Sostituzione all'indietro: U sol = y */
-    sol[n - 1] = y[n - 1] / beta[n - 1];
+    sol[n - 1] = y[n - 1] / alpha[n - 1];
     for (int i = n - 2; i >= 0; i--)
-        sol[i] = (y[i] - up[i] * sol[i + 1]) / beta[i];
+        sol[i] = (y[i] - up[i] * sol[i + 1]) / alpha[i];
 
     return 0;
 }

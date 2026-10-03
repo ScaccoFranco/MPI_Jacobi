@@ -37,15 +37,15 @@ double poisson_max_error(int N, const double *x);
 
 /*  thomas.c: solutore diretto tridiagonale  */
 
-/* Risolve il sistema tridiagonale T sol = rhs, dove T ha
+/* Risolve il sistema tridiagonale T sol = f, dove T ha
  * sottodiagonale low[1..n-1], diagonale diag[0..n-1], sopradiagonale up[0..n-2]. 
- * Usa i buffer di lavoro beta e y (dimensione n) forniti dal chiamante. 
+ * Usa le variabili alpha e y (dimensione n) forniti dal chiamante. 
  * Nessuna pivotazione:
  * adeguato per matrici a dominanza diagonale o SPD.
  * Ritorna 0 in caso di successo, -1 se incontra un pivot nullo. */
 int thomas_solve(int n, const double *low, const double *diag,
-                 const double *up, const double *rhs, double *sol,
-                 double *beta, double *y);
+                 const double *up, const double *f, double *sol,
+                 double *alpha, double *y);
 
 
 
@@ -64,4 +64,4 @@ int MPI_Schwarz(const double *A_local, const double *b_local,
                 double *x, int N, int n_loc, int rank,
                 double tol, int max_iter);
 
-#endif /* SOLVER_H */
+#endif 

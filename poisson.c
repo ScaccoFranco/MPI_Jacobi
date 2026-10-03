@@ -7,8 +7,6 @@
  *     A = h^{-2} tridiag(-1, 2, -1),   b_g = f(x_{g+1}) = 1.
  *
  * Soluzione esatta: u(x) = x (1 - x) / 2.
- *
- * Riferimenti: Quarteroni, Sacco, Saleri, Gervasio, "Matematica Numerica", 4a ed., Springer 2014, Sez. 11.2.
  */
 
 #include <math.h>
