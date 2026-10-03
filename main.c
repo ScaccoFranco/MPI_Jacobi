@@ -8,14 +8,11 @@
  *   max_iter  numero massimo di iterazioni (default 10000000)
  *
  * Passi:
- *   1. il rank 0 assembla A (N x N) e b con poisson_generate;
- *   2. MPI_Scatter distribuisce a ogni processo le sue n_loc righe di A e di b;
- *   3. si chiama il solutore scelto, misurando solo il suo tempo;
- *   4. il rank 0 stampa iterazioni, tempo (del processo piu' lento) ed errore
- *      rispetto alla soluzione esatta.
- *
- * Nota: ricostruito sull'interfaccia e sull'output dell'eseguibile build/solver,
- * perche' il main.c originale di questa versione non e' nel repository.
+ *   1. ogni processo genera le sue n_loc righe di A (tre diagonali) e di b
+ *      con poisson_generate_local: nessuna matrice globale, nessun MPI_Scatter;
+ *   2. si chiama il solutore scelto, misurando solo il suo tempo;
+ *   3. il rank 0 stampa iterazioni, tempo (del processo piu' lento) ed errore
+ *      rispetto alla soluzione esatta, combinato con MPI_Reduce (MPI_MAX).
  */
 
 #include <stdio.h>
@@ -60,45 +57,38 @@ int main(int argc, char **argv)
     }
 
     const int n_loc = N / size;
-    double *A_local = malloc((size_t)n_loc * N * sizeof(double));
-    double *b_local = malloc((size_t)n_loc * sizeof(double));
-    double *x = calloc((size_t)N, sizeof(double));   /* innesco x^(0) = 0 */
-    double *A = NULL, *b = NULL;
+    double *low  = malloc((size_t)n_loc * sizeof(double));
+    double *diag = malloc((size_t)n_loc * sizeof(double));
+    double *up   = malloc((size_t)n_loc * sizeof(double));
+    double *b    = malloc((size_t)n_loc * sizeof(double));
+    double *u    = calloc((size_t)n_loc + 2, sizeof(double));  /* innesco u^(0) = 0, celle di overlap 0 */
 
-    /* Solo il rank 0 assembla il problema completo, poi lo distribuisce:
-     * il processo r riceve le righe r*n_loc .. r*n_loc + n_loc - 1. */
-    if (rank == 0) {
-        A = malloc((size_t)N * N * sizeof(double));
-        b = malloc((size_t)N * sizeof(double));
-        poisson_generate(N, A, b);
-    }
-    MPI_Scatter(A, n_loc * N, MPI_DOUBLE, A_local, n_loc * N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Scatter(b, n_loc, MPI_DOUBLE, b_local, n_loc, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    /* Ogni processo genera le righe r*n_loc .. r*n_loc + n_loc - 1. */
+    poisson_generate_local(N, n_loc, rank, low, diag, up, b);
 
-    /* Misuro solo il solutore: generazione e distribuzione restano fuori. */
+    /* Misuro solo il solutore: la generazione resta fuori. */
     MPI_Barrier(MPI_COMM_WORLD);
     double t0 = MPI_Wtime();
     int iter = usa_jacobi
-        ? MPI_Jacobi (A_local, b_local, x, N, n_loc, rank, tol, max_iter)
-        : MPI_Schwarz(A_local, b_local, x, N, n_loc, rank, tol, max_iter);
+        ? MPI_Jacobi (low, diag, up, b, u, n_loc, rank, size, tol, max_iter)
+        : MPI_Schwarz(low, diag, up, b, u, n_loc, rank, size, tol, max_iter);
     double t = MPI_Wtime() - t0, t_max;
 
     /* Il tempo che conta e' quello del processo piu' lento. */
     MPI_Reduce(&t, &t_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
-    /* x e' completo e uguale su tutti i processi: basta il rank 0 per l'errore. */
+    /* Ogni processo ha solo le sue incognite: l'errore massimo si combina con MPI_MAX. */
+    double err_loc = poisson_max_error_local(N, n_loc, rank, &u[1]), err;
+    MPI_Reduce(&err_loc, &err, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
     if (rank == 0) {
         printf("metodo=%-8s N=%-7d p=%-3d iterazioni=%-8d tempo=%.4f s  err_max=%.3e\n",
-               metodo, N, size, iter, t_max, poisson_max_error(N, x));
+               metodo, N, size, iter, t_max, err);
         if (iter > max_iter)
             printf("attenzione: tolleranza non raggiunta in %d iterazioni\n", max_iter);
-        free(A);
-        free(b);
     }
 
-    free(A_local);
-    free(b_local);
-    free(x);
+    free(low); free(diag); free(up); free(b); free(u);
     MPI_Finalize();
     return 0;
 }

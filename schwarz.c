@@ -6,10 +6,15 @@
  * Iterazione (Richardson precondizionata):
  *   u^{m} = u^{m-1} + sum_i R_i^T A_i^{-1} R_i (b - A u^{m-1})
  *
- * dove A_i = R_i A R_i^T è il blocco diagonale n_loc x n_loc del processo i. 
- * Per il problema di Poisson ogni A_i è tridiagonale:
- * il sistema locale A_i w = r_loc viene risolto con thomas_solve,
- * interamente in locale e senza comunicazioni.
+ * dove A_i = R_i A R_i^T è il blocco diagonale n_loc x n_loc del processo i.
+ * Per il problema di Poisson ogni A_i è tridiagonale ed è gia' disponibile
+ * come tre diagonali (low, diag, up): il sistema locale A_i w = r_loc viene
+ * risolto con Thomas, interamente in locale e senza comunicazioni.
+ * A_i non cambia tra un'iterazione e l'altra, quindi Thomas la fattorizza una
+ * volta prima del ciclo; a ogni iterazione restano solo le due sostituzioni.
+ *
+ * Il residuo sulle righe locali usa solo le celle di overlap scambiate con i
+ * vicini (MPI_Sendrecv), non il vettore globale.
  *
  * Gli operatori R_i e R_i^T non sono mai costruiti esplicitamente:
  * R_i corrisponde all'accesso alla porzione locale dei vettori,
@@ -21,65 +26,57 @@
 #include <mpi.h>
 #include "solver.h"
 
-int MPI_Schwarz(const double *A_local, const double *b_local,
-                double *x, int N, int n_loc, int rank,
+int MPI_Schwarz(const double *low, const double *diag, const double *up,
+                const double *b, double *u, int n_loc, int rank, int size,
                 double tol, int max_iter)
 {
-    /* Estrazione del blocco tridiagonale locale A_i 
-     * La riga locale i è la riga globale g = rank*n_loc + i; il blocco
-     * diagonale occupa le colonne globali [rank*n_loc, rank*n_loc + n_loc). */
-    double *low = malloc((size_t)n_loc * sizeof(double));
-    double *diag = malloc((size_t)n_loc * sizeof(double));
-    double *up = malloc((size_t)n_loc * sizeof(double));
-    double *r_loc = malloc((size_t)n_loc * sizeof(double));
-    double *w = malloc((size_t)n_loc * sizeof(double));
-    double *x_new_local = malloc((size_t)n_loc * sizeof(double));
-    double *alpha = malloc((size_t)n_loc * sizeof(double));
-    double *y = malloc((size_t)n_loc * sizeof(double));
+    const int sx = (rank > 0)        ? rank - 1 : MPI_PROC_NULL;
+    const int dx = (rank < size - 1) ? rank + 1 : MPI_PROC_NULL;
 
-    const int offset = rank * n_loc;   /* prima colonna del blocco */
-    for (int i = 0; i < n_loc; i++) {
-        const double *row = &A_local[(size_t)i * N];
-        diag[i] = row[offset + i];
-        low[i] = (i > 0) ? row[offset + i - 1] : 0.0;
-        up[i] = (i < n_loc - 1) ? row[offset + i + 1] : 0.0;
-    }
+    double *r_loc = malloc((size_t)n_loc * sizeof(double));
+    double *w     = malloc((size_t)n_loc * sizeof(double));
+    double *alpha = malloc((size_t)n_loc * sizeof(double));
+    double *beta  = malloc((size_t)n_loc * sizeof(double));
+    double *y     = malloc((size_t)n_loc * sizeof(double));
+
+    /* Fattorizzazione di A_i, una volta sola. Thomas usa solo low[1..n-1] e
+     * up[0..n-2]: low[0] e up[n_loc-1] sono gli accoppiamenti con i vicini. */
+    thomas_factor(n_loc, low, diag, up, beta, alpha);
 
     /* ||b||_2 globale */
     double nb_loc = 0.0, nb;
-    for (int i = 0; i < n_loc; i++) nb_loc += b_local[i] * b_local[i];
+    for (int i = 0; i < n_loc; i++) nb_loc += b[i] * b[i];
     MPI_Allreduce(&nb_loc, &nb, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     nb = sqrt(nb);
 
-    int iter;
-    for (iter = 1; iter <= max_iter; iter++) {
+    /* All'inizio del giro k, u contiene u^{(k)}. */
+    int k;
+    for (k = 0; k < max_iter; k++) {
 
         /* 1) residuo locale: r_loc = R_i (b - A u) */
+        bordi_scambia(u, n_loc, sx, dx);
         double nr_loc = 0.0, nr;
-        for (int i = 0; i < n_loc; i++) {
-            const double *row = &A_local[(size_t)i * N];
-            double r = b_local[i];
-            for (int j = 0; j < N; j++) r -= row[j] * x[j];
-            r_loc[i] = r;
+        for (int i = 1; i <= n_loc; i++) {
+            double r = b[i - 1] - low[i - 1] * u[i - 1] - diag[i - 1] * u[i]
+                       - up[i - 1] * u[i + 1];
+            r_loc[i - 1] = r;
             nr_loc += r * r;
         }
 
         /* criterio d'arresto sul residuo appena calcolato */
         MPI_Allreduce(&nr_loc, &nr, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        if (sqrt(nr) / nb <= tol) { iter--; break; }
+        if (sqrt(nr) / nb <= tol) break;
 
         /* 2) soluzione locale esatta con Thomas: A_i w = r_loc */
-        thomas_solve(n_loc, low, diag, up, r_loc, w, alpha, y);
+        thomas_solve_factored(n_loc, beta, alpha, up, r_loc, w, y);
 
-        /* 3) aggiornamento u^{m} = u^{m-1} + R_i^T w e assemblaggio */
-        for (int i = 0; i < n_loc; i++)
-            x_new_local[i] = x[offset + i] + w[i];
-
-        MPI_Allgather(x_new_local, n_loc, MPI_DOUBLE, x, n_loc, MPI_DOUBLE, MPI_COMM_WORLD);
+        /* 3) aggiornamento u^{m} = u^{m-1} + R_i^T w: solo le mie incognite */
+        for (int i = 1; i <= n_loc; i++)
+            u[i] += w[i - 1];
     }
+    if (k == max_iter) k = max_iter + 1;   /* tolleranza non raggiunta */
 
-    free(low); free(diag); free(up);
-    free(r_loc); free(w); free(x_new_local);
-    free(alpha); free(y);
-    return iter;
+    free(r_loc); free(w);
+    free(alpha); free(beta); free(y);
+    return k;
 }

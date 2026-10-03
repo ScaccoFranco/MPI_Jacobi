@@ -3,10 +3,7 @@
  *
  * Metodo di Jacobi parallelizzato con MPI.
  *
- * L'idea di fondo e' che ogni processo si tiene solo le sue righe della matrice (n_loc righe a testa), 
- * ma per aggiornare le proprie incognite ha comunque bisogno di TUTTO il vettore soluzione dell'iterazione precedente. 
- * Per questo dopo ogni aggiornamento rimetto insieme il vettore globale con una Allgather.
- *
+ * Ogni processo si tiene solo le sue righe della matrice (n_loc righe a testa).
  * La formula e' quella classica di Jacobi
  *
  *     x^{k+1} = x^k + D^{-1} (b - A x^k)
@@ -14,75 +11,82 @@
  * che componente per componente diventa
  *
  *     x_g = ( b_g - somma_{j != g} a_gj x_j ) / a_gg .
+ *
+ * A e' tridiagonale, quindi la somma ha solo due termini, e ogni processo
+ * ha bisogno solo dei due valori di bordo dei vicini (celle di overlap) invece
+ * di tutto il vettore: al posto di MPI_Allgather bastano due MPI_Sendrecv.
+ *
+ * Residuo senza calcoli in piu': nello stesso passaggio in cui calcolo x^{k+1}
+ * ottengo anche r^{(k)} = b - A x^{(k)}, perche' t = b - somma e' gia' la parte
+ * comune: x^{k+1}_g = t / a_gg e r^{(k)}_g = t - a_gg x^{(k)}_g.
+ * Il residuo che controllo e' quindi quello dell'iterata PRECEDENTE: se e' gia'
+ * sotto tolleranza butto via x^{k+1} e restituisco x^{(k)}.
  */
 
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <mpi.h>
 #include "solver.h"
 
-int MPI_Jacobi(const double *A_local, const double *b_local,
-               double *x, int N, int n_loc, int rank,
+int MPI_Jacobi(const double *low, const double *diag, const double *up,
+               const double *b, double *u, int n_loc, int rank, int size,
                double tol, int max_iter)
 {
-    /* salvo le nuove incognite di questo processo prima di
-     * spedirle a tutti. in modo da non modificare i valori della iterazione corrente */
-    double *x_new = malloc(n_loc * sizeof(double));
+    /* vicini a sinistra e a destra (MPI_PROC_NULL agli estremi) */
+    const int sx = (rank > 0)        ? rank - 1 : MPI_PROC_NULL;
+    const int dx = (rank < size - 1) ? rank + 1 : MPI_PROC_NULL;
+
+    /* Secondo vettore con le celle di overlap: a fine iterazione scambio i
+     * puntatori invece di copiare. calloc: le celle di overlap ai bordi fisici restano 0. */
+    double *cur = u;
+    double *nxt = calloc((size_t)n_loc + 2, sizeof(double));
 
     /* Mi calcolo la norma di b, che mi serve al
      * denominatore del criterio d'arresto (residuo relativo). E' un
      * numero globale, quindi sommo i pezzi locali con una Allreduce. */
     double norm_b_loc = 0.0;
     for (int i = 0; i < n_loc; i++)
-        norm_b_loc += b_local[i] * b_local[i];
+        norm_b_loc += b[i] * b[i];
 
     double norm_b;
     MPI_Allreduce(&norm_b_loc, &norm_b, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     norm_b = sqrt(norm_b);
 
+    /* All'inizio del giro k, cur contiene x^{(k)}. */
     int k;
-    for (k = 1; k <= max_iter; k++) {
-        for (int i = 0; i < n_loc; i++) {
-            /* i è indice locale, g è l'indice globale */
-            int g = rank * n_loc + i;
+    for (k = 0; ; k++) {
+        bordi_scambia(cur, n_loc, sx, dx);
 
-            const double *riga = &A_local[i * N];
-
-            double somma = 0.0;
-            for (int j = 0; j < N; j++) {
-                if (j == g) continue;      /* salto il termine diagonale */
-                somma += riga[j] * x[j];
-            }
-
-            x_new[i] = (b_local[i] - somma) / riga[g];
-        }
-
-        /* rimetto insieme il vettore globale: */
-        /* Allgather così tutti hanno il vettore completo per l'iterazione dopo */
-        MPI_Allgather(x_new, n_loc, MPI_DOUBLE, x, n_loc, MPI_DOUBLE, MPI_COMM_WORLD);
-
-        /* controllo tolleranza per fermarmi */
-        /* Calcolo il residuo r = b - A x sulle mie righe e ne accumulo
-         * la norma al quadrato; poi sommo tra tutti i processi. */
         double norm_r_loc = 0.0;
-        for (int i = 0; i < n_loc; i++) {
-            const double *riga = &A_local[i * N];
-            double r = b_local[i];
-            for (int j = 0; j < N; j++)
-                r -= riga[j] * x[j];
+        for (int i = 1; i <= n_loc; i++) {
+            double somma = low[i - 1] * cur[i - 1] + up[i - 1] * cur[i + 1];
+            double t = b[i - 1] - somma;
+            double r = t - diag[i - 1] * cur[i];   /* r^{(k)} sulla riga i */
+            nxt[i] = t / diag[i - 1];              /* x^{(k+1)} */
             norm_r_loc += r * r;
         }
 
-        double norm_r;
-        MPI_Allreduce(&norm_r_loc, &norm_r, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        /* controllo tolleranza per fermarmi (x^{(0)} non viene controllato) */
+        if (k > 0) {
+            double norm_r;
+            MPI_Allreduce(&norm_r_loc, &norm_r, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-        /* Tutti i processi hanno lo stesso norm_r, quindi decidono tutti insieme di uscire: nessuno resta "indietro" nel ciclo. */
-        if (sqrt(norm_r) / norm_b <= tol)
-            break;
+            /* Tutti i processi hanno lo stesso norm_r, quindi decidono tutti insieme di uscire: nessuno resta "indietro" nel ciclo. */
+            if (sqrt(norm_r) / norm_b <= tol)
+                break;                   /* soluzione: x^{(k)} in cur */
+        }
+        if (k == max_iter) { k = max_iter + 1; break; }
+
+        double *tmp = cur; cur = nxt; nxt = tmp;
     }
 
-    free(x_new);
-
-    /* Returno x (globale, uguale su tutti) tramite il puntatore, e il numero di iterazioni fatte come valore di ritorno. */
+    /* la soluzione deve finire nel vettore del chiamante */
+    if (cur != u) {
+        memcpy(u, cur, ((size_t)n_loc + 2) * sizeof(double));
+        free(cur);
+    } else {
+        free(nxt);
+    }
     return k;
 }
