@@ -1,4 +1,7 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/solver.dir/link.d"
+  "CMakeFiles/solver.dir/bordi.c.o"
+  "CMakeFiles/solver.dir/bordi.c.o.d"
   "CMakeFiles/solver.dir/jacobi.c.o"
   "CMakeFiles/solver.dir/jacobi.c.o.d"
   "CMakeFiles/solver.dir/main.c.o"

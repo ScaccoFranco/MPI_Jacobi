@@ -37,8 +37,9 @@ int MPI_Jacobi(const double *low, const double *diag, const double *up,
     const int sx = (rank > 0)        ? rank - 1 : MPI_PROC_NULL;
     const int dx = (rank < size - 1) ? rank + 1 : MPI_PROC_NULL;
 
-    /* Secondo vettore con le celle di overlap: a fine iterazione scambio i
-     * puntatori invece di copiare. calloc: le celle di overlap ai bordi fisici restano 0. */
+    /* Mi serve un secondo vettore, anche lui con le celle di overlap: a fine
+     * giro scambio i puntatori invece di copiare. Uso calloc cosi' le celle ai
+     * bordi fisici restano 0. */
     double *cur = u;
     double *nxt = calloc((size_t)n_loc + 2, sizeof(double));
 
@@ -56,7 +57,7 @@ int MPI_Jacobi(const double *low, const double *diag, const double *up,
     /* All'inizio del giro k, cur contiene x^{(k)}. */
     int k;
     for (k = 0; ; k++) {
-        bordi_scambia(cur, n_loc, sx, dx);
+        bordi_scambia(cur, n_loc, 1, sx, dx);
 
         double norm_r_loc = 0.0;
         for (int i = 1; i <= n_loc; i++) {
@@ -72,7 +73,8 @@ int MPI_Jacobi(const double *low, const double *diag, const double *up,
             double norm_r;
             MPI_Allreduce(&norm_r_loc, &norm_r, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-            /* Tutti i processi hanno lo stesso norm_r, quindi decidono tutti insieme di uscire: nessuno resta "indietro" nel ciclo. */
+            /* norm_r e' uguale per tutti i processi, quindi escono tutti
+             * insieme e nessuno resta "indietro" nel ciclo. */
             if (sqrt(norm_r) / norm_b <= tol)
                 break;                   /* soluzione: x^{(k)} in cur */
         }
@@ -81,7 +83,7 @@ int MPI_Jacobi(const double *low, const double *diag, const double *up,
         double *tmp = cur; cur = nxt; nxt = tmp;
     }
 
-    /* la soluzione deve finire nel vettore del chiamante */
+    /* rimetto la soluzione nel vettore di chi mi ha chiamato */
     if (cur != u) {
         memcpy(u, cur, ((size_t)n_loc + 2) * sizeof(double));
         free(cur);

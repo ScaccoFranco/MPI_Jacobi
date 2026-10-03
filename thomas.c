@@ -1,11 +1,12 @@
 /*
- * thomas.c — algoritmo di Thomas per sistemi tridiagonali.
+ * thomas.c
  *
- * Fattorizzazione LU specializzata (senza pivotazione) seguita da
- * sostituzione in avanti e all'indietro; costo O(n).
- * La fattorizzazione (3(n-1) flops) e le sostituzioni (5n-4 flops) sono
- * separate: nello Schwarz il blocco locale non cambia tra un'iterazione e
- * l'altra, quindi basta fattorizzarlo una volta.
+ * Algoritmo di Thomas per i sistemi tridiagonali: e' la fattorizzazione LU
+ * adattata al caso tridiagonale (senza pivotazione), seguita dalla
+ * sostituzione in avanti e da quella all'indietro. Costa O(n).
+ * Ho tenuto separate la fattorizzazione (3(n-1) flops) e le sostituzioni
+ * (5n-4 flops), perche' nello Schwarz il blocco locale e' sempre lo stesso a
+ * ogni iterazione e quindi basta fattorizzarlo una volta sola.
  */
 
 #include "solver.h"

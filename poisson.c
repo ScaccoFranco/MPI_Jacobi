@@ -1,15 +1,17 @@
 /*
- * poisson.c — problema modello: -u'' = 1 su (0,1), u(0) = u(1) = 0.
+ * poisson.c
  *
- * Discretizzazione alle differenze finite centrate su N nodi interni
- * x_{g+1} = (g+1) h, g = 0..N-1, con h = 1/(N+1):
+ * Il problema modello e' -u'' = 1 su (0,1), con u(0) = u(1) = 0.
+ *
+ * Lo discretizzo con le differenze finite centrate su N nodi interni
+ * x_{g+1} = (g+1) h, g = 0..N-1, con h = 1/(N+1), e viene
  *
  *     A = h^{-2} tridiag(-1, 2, -1),   b_g = f(x_{g+1}) = 1.
  *
- * Non si assembla la matrice piena: ogni processo genera solo le tre
- * diagonali delle proprie righe.
+ * La matrice piena non la costruisco: ogni processo si genera solo le tre
+ * diagonali delle sue righe.
  *
- * Soluzione esatta: u(x) = x (1 - x) / 2.
+ * La soluzione esatta e' u(x) = x (1 - x) / 2.
  */
 
 #include <math.h>

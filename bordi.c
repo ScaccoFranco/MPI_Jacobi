@@ -1,29 +1,37 @@
 /*
- * bordi.c — scambio delle celle di overlap tra processi vicini.
+ * bordi.c
  *
- * Ogni processo tiene u[0 .. n_loc+1]: u[1..n_loc] sono le sue incognite,
- * u[0] e' l'ultima incognita del vicino di sinistra e u[n_loc+1] la prima
- * del vicino di destra. Per il prodotto A u sulle righe locali serve solo questo,
- * perche' A e' tridiagonale.
+ * Qui scambio le celle di overlap con i processi vicini.
  *
- * Agli estremi il vicino e' MPI_PROC_NULL: la send non ha effetto e la receive
- * non modifica il buffer, quindi u[0] del rank 0 e u[n_loc+1] dell'ultimo rank
- * restano a 0, cioe' le condizioni al bordo u(0) = u(1) = 0.
- * MPI_Sendrecv evita di dover ordinare a mano send e receive per non andare
- * in deadlock.
+ * Ogni processo tiene u[0 .. n_loc + 2*larg - 1]. Le sue incognite sono in
+ * u[larg .. larg+n_loc-1], in u[0 .. larg-1] ci metto le ultime larg incognite
+ * del vicino di sinistra e in u[larg+n_loc .. n_loc+2*larg-1] le prime larg
+ * del vicino di destra.
+ *
+ * Jacobi usa larg = 1: A e' tridiagonale, quindi per fare A u sulle mie righe
+ * mi basta un valore per lato. Schwarz con sovrapposizione delta usa
+ * larg = delta + 1, perche' il residuo lo calcola anche sui delta nodi presi
+ * dal vicino, e per la loro riga serve un valore in piu'.
+ *
+ * Agli estremi il vicino e' MPI_PROC_NULL: la send non fa niente e la receive
+ * non tocca il buffer. Cosi' le celle di overlap del rank 0 a sinistra e
+ * dell'ultimo rank a destra restano a 0, che sono proprio le condizioni al
+ * bordo u(0) = u(1) = 0.
+ * Uso MPI_Sendrecv cosi' non devo mettere in ordine a mano send e receive
+ * per evitare il deadlock.
  */
 
 #include <mpi.h>
 #include "solver.h"
 
-void bordi_scambia(double *u, int n_loc, int sx, int dx)
+void bordi_scambia(double *u, int n_loc, int larg, int sx, int dx)
 {
-    /* mando il mio primo valore a sinistra, ricevo la cella di overlap di destra */
-    MPI_Sendrecv(&u[1],         1, MPI_DOUBLE, sx, 0,
-                 &u[n_loc + 1], 1, MPI_DOUBLE, dx, 0,
+    /* mando i miei primi larg valori a sinistra, ricevo le celle di overlap di destra */
+    MPI_Sendrecv(&u[larg],         larg, MPI_DOUBLE, sx, 0,
+                 &u[larg + n_loc], larg, MPI_DOUBLE, dx, 0,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    /* mando il mio ultimo valore a destra, ricevo la cella di overlap di sinistra */
-    MPI_Sendrecv(&u[n_loc],     1, MPI_DOUBLE, dx, 1,
-                 &u[0],         1, MPI_DOUBLE, sx, 1,
+    /* mando i miei ultimi larg valori a destra, ricevo le celle di overlap di sinistra */
+    MPI_Sendrecv(&u[n_loc],        larg, MPI_DOUBLE, dx, 1,
+                 &u[0],            larg, MPI_DOUBLE, sx, 1,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 }
