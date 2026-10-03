@@ -92,9 +92,3 @@ misura solo l'errore del solutore iterativo.
 | `thomas.c`  | algoritmo di Thomas: fattorizzazione e sostituzioni separate |
 | `bordi.c`   | scambio delle celle di overlap con i processi vicini (`MPI_Sendrecv`) |
 | `solver.h`  | interfacce comuni |
-
-La prima versione (matrice piena, `MPI_Scatter` e `MPI_Allgather`) è nel tag `v1.0`:
-
-```bash
-git checkout v1.0
-```
