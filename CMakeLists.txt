@@ -12,6 +12,6 @@ endif()
 
 find_package(MPI REQUIRED)
 
-set(SRC_COMUNI poisson.c thomas.c bordi.c jacobi.c schwarz.c)
+set(SRC_COMUNI poisson.c thomas.c jacobi.c schwarz.c)
 add_executable(solver main.c ${SRC_COMUNI})
 target_link_libraries(solver PRIVATE MPI::MPI_C m)  # m = libreria matematica (-lm)

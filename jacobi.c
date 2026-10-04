@@ -25,7 +25,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 #include <mpi.h>
 #include "solver.h"
 
@@ -49,10 +48,7 @@ int MPI_Jacobi(const double *low, const double *diag, const double *up,
     double norm_b_loc = 0.0;
     for (int i = 0; i < n_loc; i++)
         norm_b_loc += b[i] * b[i];
-
-    double norm_b;
-    MPI_Allreduce(&norm_b_loc, &norm_b, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-    norm_b = sqrt(norm_b);
+    const double norm_b = norma_globale(norm_b_loc);
 
     /* All'inizio del giro k, cur contiene x^{(k)}. */
     int k;
@@ -68,16 +64,11 @@ int MPI_Jacobi(const double *low, const double *diag, const double *up,
             norm_r_loc += r * r;
         }
 
-        /* controllo tolleranza per fermarmi (x^{(0)} non viene controllato) */
-        if (k > 0) {
-            double norm_r;
-            MPI_Allreduce(&norm_r_loc, &norm_r, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-            /* norm_r e' uguale per tutti i processi, quindi escono tutti
-             * insieme e nessuno resta "indietro" nel ciclo. */
-            if (sqrt(norm_r) / norm_b <= tol)
-                break;                   /* soluzione: x^{(k)} in cur */
-        }
+        /* controllo tolleranza per fermarmi. La norma e' uguale per tutti i
+         * processi, quindi escono tutti insieme e nessuno resta "indietro"
+         * nel ciclo. */
+        if (norma_globale(norm_r_loc) / norm_b <= tol)
+            break;                       /* soluzione: x^{(k)} in cur */
         if (k == max_iter) { k = max_iter + 1; break; }
 
         double *tmp = cur; cur = nxt; nxt = tmp;

@@ -63,7 +63,7 @@ void thomas_solve_factored(int n, const double *beta, const double *alpha,
 
 
 
-/*  bordi.c: scambio delle celle di overlap con i vicini  */
+/*  schwarz.c: scambio delle celle di overlap e norma globale (le usa anche jacobi.c)  */
 
 /* u ha larg celle di overlap per lato e le mie incognite sono in
    u[larg .. larg+n_loc-1]. Dopo la chiamata in u[0 .. larg-1] e
@@ -71,6 +71,11 @@ void thomas_solve_factored(int n, const double *beta, const double *alpha,
    Agli estremi (sx o dx == MPI_PROC_NULL) le celle di overlap non cambiano.
    Serve larg <= n_loc. */
 void bordi_scambia(double *u, int n_loc, int larg, int sx, int dx);
+
+/* Norma 2 globale: riceve la somma dei quadrati delle componenti locali e
+   ritorna la radice della somma su tutti i processi (MPI_Allreduce), uguale
+   per tutti. */
+double norma_globale(double somma_quadrati_loc);
 
 
 

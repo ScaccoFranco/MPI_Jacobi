@@ -21,11 +21,25 @@
  *      (MPI_MAX).
  */
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <mpi.h>
 #include "solver.h"
+
+/* Il messaggio lo stampa solo il rank 0, ma escono tutti i processi. */
+static int esci_con_errore(int rank, const char *formato, ...)
+{
+    if (rank == 0) {
+        va_list args;
+        va_start(args, formato);
+        vfprintf(stderr, formato, args);
+        va_end(args);
+    }
+    MPI_Finalize();
+    return 1;
+}
 
 int main(int argc, char **argv)
 {
@@ -35,12 +49,8 @@ int main(int argc, char **argv)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    if (argc < 3) {
-        if (rank == 0)
-            fprintf(stderr, "Uso: %s <N> <jacobi|schwarz> [tol] [max_iter] [delta]\n", argv[0]);
-        MPI_Finalize();
-        return 1;
-    }
+    if (argc < 3)
+        return esci_con_errore(rank, "Uso: %s <N> <jacobi|schwarz> [tol] [max_iter] [delta]\n", argv[0]);
 
     const int N = atoi(argv[1]);
     const char *metodo = argv[2];
@@ -50,26 +60,14 @@ int main(int argc, char **argv)
     const int usa_jacobi = (strcmp(metodo, "jacobi") == 0);
 
     /* I controlli li fanno tutti i processi, cosi' se c'e' un errore escono tutti insieme. */
-    if (N < size || N % size != 0) {
-        if (rank == 0)
-            fprintf(stderr, "Errore: N=%d non e' un multiplo positivo di p=%d\n", N, size);
-        MPI_Finalize();
-        return 1;
-    }
-    if (!usa_jacobi && strcmp(metodo, "schwarz") != 0) {
-        if (rank == 0)
-            fprintf(stderr, "Metodo sconosciuto: %s (usare jacobi o schwarz)\n", metodo);
-        MPI_Finalize();
-        return 1;
-    }
+    if (N < size || N % size != 0)
+        return esci_con_errore(rank, "Errore: N=%d non e' un multiplo positivo di p=%d\n", N, size);
+    if (!usa_jacobi && strcmp(metodo, "schwarz") != 0)
+        return esci_con_errore(rank, "Metodo sconosciuto: %s (usare jacobi o schwarz)\n", metodo);
 
     const int n_loc = N / size;
-    if (!usa_jacobi && (delta < 0 || delta + 1 > n_loc)) {
-        if (rank == 0)
-            fprintf(stderr, "Errore: serve 0 <= delta <= N/p - 1 = %d\n", n_loc - 1);
-        MPI_Finalize();
-        return 1;
-    }
+    if (!usa_jacobi && (delta < 0 || delta + 1 > n_loc))
+        return esci_con_errore(rank, "Errore: serve 0 <= delta <= N/p - 1 = %d\n", n_loc - 1);
     double *low  = malloc((size_t)n_loc * sizeof(double));
     double *diag = malloc((size_t)n_loc * sizeof(double));
     double *up   = malloc((size_t)n_loc * sizeof(double));

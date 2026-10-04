@@ -93,7 +93,6 @@ misura solo l'errore del solutore iterativo.
 | `main.c`    | lettura degli argomenti, generazione del problema, chiamata del solutore, stampa |
 | `poisson.c` | ogni processo genera le sue righe di `A` (tre diagonali) e di `b`; soluzione esatta ed errore |
 | `jacobi.c`  | metodo di Jacobi |
-| `schwarz.c` | metodo di Schwarz additivo RAS con sovrapposizione `delta` (`delta = 0`: Jacobi a blocchi) |
+| `schwarz.c` | metodo di Schwarz additivo RAS con sovrapposizione `delta` (`delta = 0`: Jacobi a blocchi), e `bordi_scambia`, lo scambio delle celle di overlap con i processi vicini (`MPI_Sendrecv`): 1 valore per lato per Jacobi, `delta + 1` per Schwarz |
 | `thomas.c`  | algoritmo di Thomas: fattorizzazione e sostituzioni separate |
-| `bordi.c`   | scambio delle celle di overlap con i processi vicini (`MPI_Sendrecv`): 1 valore per lato per Jacobi, `delta + 1` per Schwarz |
 | `solver.h`  | interfacce comuni |
