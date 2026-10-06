@@ -23,7 +23,7 @@
 
 /* poisson.c: generazione del problema  */
 
-// TODO: ora uso una f = 1, provare poi a generalizzare o cmq provare altre f
+/* TODO: ora uso una f = 1, provare poi a generalizzare o cmq provare altre f */
 
 /* Ogni processo si costruisce le sue n_loc righe di
    A = h^{-2} tridiag(-1, 2, -1) e del termine noto (f == 1), h = 1/(N+1).

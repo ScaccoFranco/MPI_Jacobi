@@ -61,8 +61,8 @@ mpirun -np 2 ./build/solver 1024 schwarz 1e-8
 # Schwarz con sovrapposizione di 16 nodi per lato
 mpirun -np 2 ./build/solver 2048 schwarz 1e-6 10000000 16
 
-# numero di iterazioni fisso (tol = 0): 1000 iterazioni, utile per misurare i tempi
-mpirun -np 4 ./build/solver 1000000 schwarz 0 1000
+# numero di iterazioni fisso (tol = -1, mai raggiunta): 1000 iterazioni, utile per misurare i tempi
+mpirun -np 4 ./build/solver 1000000 schwarz -1 1000
 
 # processi fissati ai core (Open MPI), per misure più stabili
 mpirun -np 4 --bind-to core ./build/solver 16384 jacobi 0 20000
@@ -80,8 +80,10 @@ metodo=schwarz  N=1024    p=2   iterazioni=8325     tempo=0.1503 s  err_max=1.10
 - `tempo`: tempo del solo solutore, del processo più lento (`MPI_Wtime`);
 - `err_max`: errore in norma del massimo rispetto alla soluzione esatta.
 
-Con `tol = 0` la tolleranza non viene mai raggiunta: è normale che compaiano
-`iterazioni=max_iter+1` e l'avviso.
+Con `tol = 0` di solito la tolleranza non viene raggiunta, e allora è normale che
+compaiano `iterazioni=max_iter+1` e l'avviso. Il programma però si ferma se il residuo
+diventa esattamente 0, cosa che può succedere con Schwarz e `p = 1` (metodo diretto):
+per avere sempre `max_iter` iterazioni si usa una tolleranza negativa, ad esempio `-1`.
 
 Con `f = 1` lo schema alle differenze finite è esatto nei nodi, quindi `err_max`
 misura solo l'errore del solutore iterativo.
@@ -96,3 +98,6 @@ misura solo l'errore del solutore iterativo.
 | `schwarz.c` | metodo di Schwarz additivo RAS con sovrapposizione `delta` (`delta = 0`: Jacobi a blocchi), e `bordi_scambia`, lo scambio delle celle di overlap con i processi vicini (`MPI_Sendrecv`): 1 valore per lato per Jacobi, `delta + 1` per Schwarz |
 | `thomas.c`  | algoritmo di Thomas: fattorizzazione e sostituzioni separate |
 | `solver.h`  | interfacce comuni |
+| `risultati/esegui_test.sh` | lancia i test e salva i risultati in file CSV in `risultati/dati/` |
+| `risultati/grafici.py` | legge i CSV e fa i grafici in `risultati/grafici/` |
+
